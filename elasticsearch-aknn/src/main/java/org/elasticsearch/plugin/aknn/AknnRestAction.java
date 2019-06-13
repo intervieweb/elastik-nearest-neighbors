@@ -55,6 +55,7 @@ public class AknnRestAction extends BaseRestHandler {
     private final String NAME_SEARCH = "_aknn_search";
     private final String NAME_INDEX = "_aknn_index";
     private final String NAME_CREATE = "_aknn_create";
+    private final String NAME_SEARCH_VECTOR = "_aknn_search_vector";
 
     // TODO: check how parameters should be defined at the plugin level.
     private final String HASHES_KEY = "_aknn_hashes";
@@ -71,6 +72,7 @@ public class AknnRestAction extends BaseRestHandler {
         controller.registerHandler(GET, "/{index}/{type}/{id}/" + NAME_SEARCH, this);
         controller.registerHandler(POST, NAME_INDEX, this);
         controller.registerHandler(POST, NAME_CREATE, this);
+        controller.registerHandler(POST, "/{index}/{type}/" + NAME_SEARCH_VECTOR, this);
     }
 
     @Override
@@ -84,8 +86,10 @@ public class AknnRestAction extends BaseRestHandler {
             return handleSearchRequest(restRequest, client);
         else if (restRequest.path().endsWith(NAME_INDEX))
             return handleIndexRequest(restRequest, client);
-        else
+        else if (restRequest.path().endsWith(NAME_CREATE))
             return handleCreateRequest(restRequest, client);
+        else
+            return handleSearchVectorRequest(restRequest, client);
     }
 
     public static Double euclideanDistance(List<Double> A, List<Double> B) {
@@ -351,6 +355,130 @@ public class AknnRestAction extends BaseRestHandler {
             builder.startObject();
             builder.field("size", docs.size());
             builder.field("took", stopWatch.totalTime().getMillis());
+            builder.endObject();
+            channel.sendResponse(new BytesRestResponse(RestStatus.OK, builder));
+        };
+    }
+
+    private RestChannelConsumer handleSearchVectorRequest(RestRequest restRequest, NodeClient client) throws IOException {
+
+        StopWatch stopWatch = new StopWatch("StopWatch to time search from vector request");
+        logger.info("Parse request");
+        stopWatch.start("Parse request");
+
+        XContentParser xContentParser = XContentHelper.createParser(
+                restRequest.getXContentRegistry(), restRequest.content(), restRequest.getXContentType());
+        Map<String, Object> contentMap = xContentParser.mapOrdered();
+        @SuppressWarnings("unchecked")
+
+        final String index = restRequest.param("index");
+        final String type = restRequest.param("type");
+        final String aknnURI = (String) contentMap.get("_aknn_uri");
+        final Integer k1 = (Integer) contentMap.get("_k1");
+        final Integer k2 = (Integer) contentMap.get("_k2");
+        @SuppressWarnings("unchecked")
+        final List<Double> queryVector = (List<Double>) contentMap.get("_aknn_vector");
+        stopWatch.stop();
+
+        // Check if the LshModel has been cached. If not, retrieve the Aknn document and use it to populate the model.
+        LshModel lshModel;
+        if (! lshModelCache.containsKey(aknnURI)) {
+
+            // Get the Aknn document.
+            logger.info("Get Aknn model document from {}", aknnURI);
+            stopWatch.start("Get Aknn model document");
+            String[] annURITokens = aknnURI.split("/");
+            GetResponse aknnGetResponse = client.prepareGet(annURITokens[0], annURITokens[1], annURITokens[2]).get();
+            stopWatch.stop();
+
+            // Instantiate LSH from the source map.
+            logger.info("Parse Aknn model document");
+            stopWatch.start("Parse Aknn model document");
+            lshModel = LshModel.fromMap(aknnGetResponse.getSourceAsMap());
+            stopWatch.stop();
+
+            // Save for later.
+            lshModelCache.put(aknnURI, lshModel);
+
+        } else {
+            logger.info("Get Aknn model document from local cache");
+            stopWatch.start("Get Aknn model document from local cache");
+            lshModel = lshModelCache.get(aknnURI);
+            stopWatch.stop();
+        }
+
+        // Prepare documents for batch indexing.
+        logger.info("Hash vector for search");
+        stopWatch.start("Hash vector for search");
+        
+        Map<String, Long> queryHashes = lshModel.getVectorHashes(queryVector);
+        
+        stopWatch.stop();
+
+
+        // Retrieve the documents with most matching hashes. https://stackoverflow.com/questions/10773581
+        logger.info("Build boolean query from hashes");
+        stopWatch.start("Build boolean query from hashes");
+        QueryBuilder queryBuilder = QueryBuilders.boolQuery();
+        for (Map.Entry<String, Long> entry : queryHashes.entrySet()) {
+            String termKey = HASHES_KEY + "." + entry.getKey();
+            ((BoolQueryBuilder) queryBuilder).should(QueryBuilders.termQuery(termKey, entry.getValue()));
+        }
+        stopWatch.stop();
+
+        logger.info("Execute boolean search");
+        //logger.info("queryBuilder is: {}", queryBuilder);
+        stopWatch.start("Execute boolean search");
+        SearchResponse approximateSearchResponse = client
+                .prepareSearch(index)
+                .setTypes(type)
+                .setFetchSource("*", HASHES_KEY)
+                .setQuery(queryBuilder)
+                .setSize(k1)
+                .get();
+        stopWatch.stop();
+
+        // Compute exact KNN on the approximate neighbors.
+        // Recreate the SearchHit structure, but remove the vector and hashes.
+        logger.info("Compute exact distance and construct search hits");
+        stopWatch.start("Compute exact distance and construct search hits");
+        List<Map<String, Object>> modifiedSortedHits = new ArrayList<>();
+        for (SearchHit hit: approximateSearchResponse.getHits()) {
+            Map<String, Object> hitSource = hit.getSourceAsMap();
+            @SuppressWarnings("unchecked")
+            List<Double> hitVector = (List<Double>) hitSource.get(VECTOR_KEY);
+            hitSource.remove(VECTOR_KEY);
+            hitSource.remove(HASHES_KEY);
+            modifiedSortedHits.add(new HashMap<String, Object>() {{
+                put("_index", hit.getIndex());
+                put("_id", hit.getId());
+                put("_type", hit.getType());
+                put("_score", euclideanDistance(queryVector, hitVector));
+                put("_source", hitSource);
+            }});
+        }
+        stopWatch.stop();
+
+        logger.info("Sort search hits by exact distance");
+        stopWatch.start("Sort search hits by exact distance");
+        modifiedSortedHits.sort(Comparator.comparingDouble(x -> (Double) x.get("_score")));
+        stopWatch.stop();
+
+        logger.info("Timing summary\n {}", stopWatch.prettyPrint());
+
+        return channel -> {
+            XContentBuilder builder = channel.newBuilder();
+            builder.startObject();
+            builder.field("took", stopWatch.totalTime().getMillis());
+            builder.field("timed_out", false);
+            builder.startObject("hits");
+            builder.field("max_score", 0);
+
+            // In some cases there will not be enough approximate matches to return *k2* hits. For example, this could
+            // be the case if the number of bits per table in the LSH model is too high, over-partioning the space.
+            builder.field("total", min(k2, modifiedSortedHits.size()));
+            builder.field("hits", modifiedSortedHits.subList(0, min(k2, modifiedSortedHits.size())));
+            builder.endObject();
             builder.endObject();
             channel.sendResponse(new BytesRestResponse(RestStatus.OK, builder));
         };

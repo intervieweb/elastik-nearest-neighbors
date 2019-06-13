@@ -150,12 +150,54 @@ This returns:
 { "took": <number of milliseconds>, "size": <number of documents indexed> }
 ```
 
-#### Similarity Search
+#### Similarity Search From Vector in Index
 
 Given a vector in the index, search for and return its nearest neighbors.
 
 ```
 GET <elasticsearch host>:9200/twitter_images/twitter_image/1/_aknn_search?k1=1000&k2=10
+```
+
+This returns:
+
+```
+{
+    "took": <number of milliseconds>,
+    "timed_out": false,
+
+    "hits": {
+        "max_score": 0,
+        "total": <number of hits returned, up to k2>,
+        "hits": [
+            {
+                "_id": "...",
+                '_index': "twitter_images",
+                "_score": <euclidean distance from query vector to this vector>,
+                '_source': {
+                    # All of the document fields except for the potentially
+                    # large fields containing the vector and hashes.
+                }
+            }, ...
+        ]
+
+    }
+
+}
+```
+
+#### Similarity Search From Vector
+
+Given a vector, search for and return its nearest neighbors.
+
+```
+POST <elasticsearch host>:9200/twitter_images/twitter_image/_aknn_search_vector
+
+{
+    "_k1": 1000,
+    "_k2": 10,
+    "_aknn_vector": [0.11, 0.22, ...], # Provide a single vector of dimension _aknn_nb_dimensions
+    "_aknn_uri": "aknn_models/aknn_model/twitter_image_search"
+}
 ```
 
 This returns:
