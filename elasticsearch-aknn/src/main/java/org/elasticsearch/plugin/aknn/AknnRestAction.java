@@ -106,6 +106,8 @@ public class AknnRestAction extends BaseRestHandler {
         final String id = restRequest.param("id");
         final Integer k1 = restRequest.paramAsInt("k1", K1_DEFAULT);
         final Integer k2 = restRequest.paramAsInt("k2", K2_DEFAULT);
+        final String name = restRequest.param("name", "");
+        final String surname = restRequest.param("surname", "");
         stopWatch.stop();
 
         logger.info("Get query document at {}/{}/{}", index, type, id);
@@ -133,9 +135,26 @@ public class AknnRestAction extends BaseRestHandler {
             String termKey = HASHES_KEY + "." + entry.getKey();
             ((BoolQueryBuilder) queryBuilder).should(QueryBuilders.termQuery(termKey, entry.getValue()));
         }
+        if (! name.isEmpty()) {
+        logger.info("Adding _name filter in query");
+        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery("_name", name)
+                                                            .prefixLength(0)
+                                                            .maxExpansions(1)
+                                                            .fuzzyTranspositions(false)
+                                                            .autoGenerateSynonymsPhraseQuery(false));
+        }
+        if (! surname.isEmpty()) {
+        logger.info("Adding _surname filter in query");
+        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery("_surname", surname)
+                                                            .prefixLength(0)
+                                                            .maxExpansions(1)
+                                                            .fuzzyTranspositions(false)
+                                                            .autoGenerateSynonymsPhraseQuery(false));
+        }
         stopWatch.stop();
 
         logger.info("Execute boolean search");
+        //logger.info("queryBuilder is: {}", queryBuilder);
         stopWatch.start("Execute boolean search");
         SearchResponse approximateSearchResponse = client
                 .prepareSearch(index)
