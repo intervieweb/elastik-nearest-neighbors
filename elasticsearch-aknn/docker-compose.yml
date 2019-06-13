@@ -7,7 +7,7 @@ services:
     container_name: es-aknn
     hostname: es-aknn
     volumes:
-      - /home/michele/Projects/elastik-nearest-neighbors:/home/elastik-nearest-neighbors
+      - ..:/home/elastik-nearest-neighbors
 #    tty: true
     ports:
       - "9200:9200"
