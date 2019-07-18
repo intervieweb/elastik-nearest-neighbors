@@ -31,6 +31,7 @@ import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.rest.BaseRestHandler;
 import org.elasticsearch.rest.BytesRestResponse;
 import org.elasticsearch.rest.RestController;
@@ -62,6 +63,9 @@ public class AknnRestAction extends BaseRestHandler {
     private final String VECTOR_KEY = "_aknn_vector";
     private final Integer K1_DEFAULT = 99;
     private final Integer K2_DEFAULT = 10;
+
+    private String strict_mode = "STRICT";
+    private String at_least_one_mode = "AT_LEAST_ONE";
 
     // TODO: add an option to the index endpoint handler that empties the cache.
     private Map<String, LshModel> lshModelCache = new HashMap<>();
@@ -99,6 +103,30 @@ public class AknnRestAction extends BaseRestHandler {
         return Math.sqrt(squaredDistance);
     }
 
+    // Cosine Distance: A B = ||A|| ||B|| cos theta
+
+    public static Double cosineSimilarityDistance(List<Double> A, List<Double> B) {
+        Double prodotto = 0.0, norma_a = 0.0, norma_b = 0.0;
+        for(int i = 0; i < A.size(); i++) {
+            prodotto += A.get(i) * B.get(i);
+            norma_a += Math.pow(A.get(i), 2);
+            norma_b += Math.pow(B.get(i), 2);
+        }
+        return prodotto / (Math.sqrt(norma_a) * Math.sqrt(norma_b));
+    }
+
+    public boolean validMode(String param) {
+        if(param.isEmpty()) return true;
+        switch(param) {
+            case "STRICT":
+                return true;
+            case "AT_LEAST_ONE":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private RestChannelConsumer handleSearchRequest(RestRequest restRequest, NodeClient client) throws IOException {
 
         StopWatch stopWatch = new StopWatch("StopWatch to Time Search Request");
@@ -110,8 +138,34 @@ public class AknnRestAction extends BaseRestHandler {
         final String id = restRequest.param("id");
         final Integer k1 = restRequest.paramAsInt("k1", K1_DEFAULT);
         final Integer k2 = restRequest.paramAsInt("k2", K2_DEFAULT);
-        final String name = restRequest.param("name", "");
-        final String surname = restRequest.param("surname", "");
+
+        final String education_experience_title = restRequest.param("title", "");
+        final String education_experience_organization = restRequest.param("organization", "");
+        final String work_experience_employer = restRequest.param("employer", "");
+        final String work_experience_position = restRequest.param("position", "");
+
+        final String education_experience_title_mode = restRequest.param("title_mode", "");
+        final String education_experience_organization_mode = restRequest.param("organization_mode", "");
+        final String work_experience_employer_mode = restRequest.param("employer_mode", "");
+        final String work_experience_position_mode = restRequest.param("position_mode", "");
+
+        if(!validMode(education_experience_title_mode) || !validMode(education_experience_organization_mode)
+        || !validMode(work_experience_employer_mode) || !validMode(work_experience_position_mode)) {
+            return channel -> {
+                XContentBuilder builder = channel.newBuilder();
+                builder.startObject();
+                builder.field("took", stopWatch.totalTime().getMillis());
+                builder.field("timed_out", false);
+                builder.field("error_request", "invalid query mode");
+                builder.startObject("valid modes");
+                builder.field("strict mode value", "STRICT");
+                builder.field("at least one mode value", "AT_LEAST_ONE");
+                builder.endObject();
+                builder.endObject();
+                channel.sendResponse(new BytesRestResponse(RestStatus.BAD_REQUEST , builder));
+            };
+        }
+
         stopWatch.stop();
 
         logger.info("Get query document at {}/{}/{}", index, type, id);
@@ -139,26 +193,128 @@ public class AknnRestAction extends BaseRestHandler {
             String termKey = HASHES_KEY + "." + entry.getKey();
             ((BoolQueryBuilder) queryBuilder).should(QueryBuilders.termQuery(termKey, entry.getValue()));
         }
-        if (! name.isEmpty()) {
-        logger.info("Adding _name filter in query");
-        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery("_name", name)
-                                                            .prefixLength(0)
-                                                            .maxExpansions(1)
-                                                            .fuzzyTranspositions(false)
-                                                            .autoGenerateSynonymsPhraseQuery(false));
+
+        if(!education_experience_title.isEmpty() && !education_experience_title_mode.isEmpty()) {
+            logger.info("Adding title of education_experience filter in query");
+            switch(education_experience_title_mode) {
+                case "STRICT":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.education_experience.title", education_experience_title)
+                            .operator(Operator.AND)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                case "AT_LEAST_ONE":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.education_experience.title", education_experience_title)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                default:
+                    // AT_LEAST_ONE
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.education_experience.title", education_experience_title)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+            }
         }
-        if (! surname.isEmpty()) {
-        logger.info("Adding _surname filter in query");
-        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery("_surname", surname)
-                                                            .prefixLength(0)
-                                                            .maxExpansions(1)
-                                                            .fuzzyTranspositions(false)
-                                                            .autoGenerateSynonymsPhraseQuery(false));
+
+        if(!education_experience_organization.isEmpty() && !education_experience_organization_mode.isEmpty()) {
+            logger.info("Adding organization of education_experience filter in query");
+            switch(education_experience_organization_mode) {
+                case "STRICT":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.education_experience.organization", education_experience_organization)
+                            .operator(Operator.AND)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                case "AT_LEAST_ONE":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.education_experience.organization", education_experience_organization)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                default:
+                    // AT_LEAST_ONE
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.education_experience.organization", education_experience_organization)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+            }
         }
+
+        if(!work_experience_employer.isEmpty() && !work_experience_employer_mode.isEmpty()) {
+            logger.info("Adding employer of work_experience filter in query");
+            switch(work_experience_employer_mode) {
+                case "STRICT":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.work_experience.employer", work_experience_employer)
+                            .operator(Operator.AND)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                case "AT_LEAST_ONE":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.work_experience.employer", work_experience_employer)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                default:
+                    // AT_LEAST_ONE
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.work_experience.employer", work_experience_employer)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+            }
+        }
+
+        if(!work_experience_position.isEmpty() && !work_experience_position_mode.isEmpty()) {
+            logger.info("Adding position of work_experience filter in query");
+            switch(work_experience_position_mode) {
+                case "STRICT":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.work_experience.position", work_experience_position)
+                            .operator(Operator.AND)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                case "AT_LEAST_ONE":
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.work_experience.position", work_experience_position)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+                    break;
+                default:
+                    // AT_LEAST_ONE
+                    ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                        "all.info.work_experience.position", work_experience_position)
+                            .prefixLength(0)
+                            .maxExpansions(1)
+                            .fuzzyTranspositions(false)
+                            .autoGenerateSynonymsPhraseQuery(false));
+            }
+            
+        }
+
         stopWatch.stop();
 
         logger.info("Execute boolean search");
-        //logger.info("queryBuilder is: {}", queryBuilder);
+        logger.info("queryBuilder is: {}", queryBuilder);
         stopWatch.start("Execute boolean search");
         SearchResponse approximateSearchResponse = client
                 .prepareSearch(index)
@@ -208,6 +364,18 @@ public class AknnRestAction extends BaseRestHandler {
             // In some cases there will not be enough approximate matches to return *k2* hits. For example, this could
             // be the case if the number of bits per table in the LSH model is too high, over-partioning the space.
             builder.field("total", min(k2, modifiedSortedHits.size()));
+            if(!education_experience_organization_mode.isEmpty()) {
+                builder.field("edu_exp_org_mode", education_experience_organization_mode);
+            }
+            if(!education_experience_title_mode.isEmpty()) {
+                builder.field("edu_exp_title_mode", education_experience_title_mode);
+            }
+            if(!work_experience_employer_mode.isEmpty()) {
+                builder.field("work_exp_employer_mode", work_experience_employer_mode);
+            }
+            if(!work_experience_position_mode.isEmpty()) {
+                builder.field("work_exp_pos_mode", work_experience_position_mode);
+            }
             builder.field("hits", modifiedSortedHits.subList(0, min(k2, modifiedSortedHits.size())));
             builder.endObject();
             builder.endObject();

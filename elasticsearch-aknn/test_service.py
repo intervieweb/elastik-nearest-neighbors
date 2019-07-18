@@ -60,7 +60,7 @@ init_LSH(name = LSHMODEL, nhash = NHASH, bits = BITS, dim = EDIM)
 #
 
 
-def body_add_test(indexname, doctype, aknnuri, docid, vec, name, surname):
+def body_add_test(indexname, doctype, aknnuri, docid, vec, name, surname, organization, title, employer, position):
     '''
     Returns body to be POSTED to elasticsearch when adding single item to index. The format is
     body = {"_index": indexname,
@@ -75,9 +75,63 @@ def body_add_test(indexname, doctype, aknnuri, docid, vec, name, surname):
                 }
     '''
     # build body
+    email = str(name) + str(surname) + "@ivw.it"
     source = {}
-    source["_name"] = name
-    source["_surname"] = surname
+    source["all"] = {}
+    source["all"]["info"] = {}
+    source["all"]["info"]["id"] = {
+        "email": email,
+        "name": name,
+        "surname": surname,
+        "telephone": [
+            "+33-0987654321",
+            "+39-3214567890"
+        ]
+    }
+    source["all"]["info"]["education_experience"] = [
+        {
+            "date_begin": "20/09/2007",
+            "date_end": "11/06/2011",
+            "location": {
+                "city": "Anytown",
+                "country": "USA"
+            },
+            "organization": organization,
+            "title": title
+        },
+        {
+            "date_begin": "20/09/2017",
+            "date_end": "11/06/2021",
+            "location": {
+                "city": "Eureka",
+                "country": "USA"
+            },
+            "organization": organization,
+            "title": title
+        }
+    ]
+    source["all"]["info"]["work_experience"] = [
+        {
+            "employer": employer,
+            "position": position,
+            "location": {
+                "city": "Anytown",
+                "country": "USA"
+            },
+            "date_begin": "27/10/2012",
+            "date_end": "16/06/2015"
+        },
+        {
+            "employer": employer,
+            "position": position,
+            "location": {
+                "city": "Eureka",
+                "country": "USA"
+            },
+            "date_begin": "27/10/2022",
+            "date_end": "16/06/2025"
+        }
+    ]
     source["_aknn_vector"] = vec
     body = {"_index": indexname,
                 "_type": doctype,
@@ -88,7 +142,7 @@ def body_add_test(indexname, doctype, aknnuri, docid, vec, name, surname):
                 }
     return body
 
-def add_item_to_index(indexname, name, surname, itemid):
+def add_item_to_index(indexname, name, surname, organization, title, employer, position, itemid):
     '''
     Compute vector and add item to es index
     '''
@@ -100,13 +154,20 @@ def add_item_to_index(indexname, name, surname, itemid):
                          docid = itemid,
                          vec = nvec.tolist(),
                          name = name,
-                         surname = surname)
+                         surname = surname,
+                         organization = organization,
+                         title = title,
+                         employer = employer,
+                         position = position)
     url = '{}/_aknn_index'.format(ES_URL)
     requests.post(url, json = body)
 
 names = ['Andrea', 'Carlo', 'Pietro', 'Giulia']
 surnames = ['Bianchi', 'Rossi', 'Verdi', 'Dutto']
+organizations = ['Politecnico di Torino', 'Università degli Studi di Torino', 'Politecnico di Milano', 'Università Cattolica di Milano']
+titles = ['Ingegnere Gestionale', 'Informatica', 'Ingegneria Aereospaziale', 'Fisica']
+employers = ['Intervieweb s.r.l.', 'Alten s.p.a.', 'Zucchetti s.p.a.', 'SpaceX ltd']
+positions = ['IT Manager', 'Fullstack Developer', 'Engineer', 'CTO']
 
 for id in range(100):
-    add_item_to_index('testindex', random.choice(names), random.choice(surnames), str(id))
-
+    add_item_to_index('testindex', random.choice(names), random.choice(surnames), random.choice(organizations), random.choice(titles), random.choice(employers), random.choice(positions), str(id))

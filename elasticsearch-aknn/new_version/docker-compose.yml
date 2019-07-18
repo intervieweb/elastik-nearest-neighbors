@@ -1,0 +1,18 @@
+version: '3.5'
+
+services:
+  elasticsearch:
+    build: .
+    image: es-aknn
+    container_name: es-aknn
+    hostname: es-aknn
+    volumes:
+      - ..:/home/elastik-nearest-neighbors
+#    tty: true
+    ports:
+      - "9200:9200"
+    networks:
+      - esnet
+
+networks:
+  esnet:
