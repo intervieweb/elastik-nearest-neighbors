@@ -120,6 +120,7 @@ public class AknnRestAction extends BaseRestHandler {
     }
 
     public boolean validMode(String param) {
+        if(param == null) return true;
         if(param.isEmpty()) return true;
         switch(param) {
             case "STRICT":
@@ -599,6 +600,22 @@ public class AknnRestAction extends BaseRestHandler {
         
         stopWatch.stop();
 
+        if(!validMode(education_experience_title_mode) || !validMode(education_experience_organization_mode)
+        || !validMode(work_experience_employer_mode) || !validMode(work_experience_position_mode)) {
+            return channel -> {
+                XContentBuilder builder = channel.newBuilder();
+                builder.startObject();
+                builder.field("took", stopWatch.totalTime().getMillis());
+                builder.field("timed_out", false);
+                builder.field("error_request", "invalid query mode");
+                builder.startObject("valid modes");
+                builder.field("strict mode value", "STRICT");
+                builder.field("at least one mode value", "AT_LEAST_ONE");
+                builder.endObject();
+                builder.endObject();
+                channel.sendResponse(new BytesRestResponse(RestStatus.BAD_REQUEST , builder));
+            };
+        }
 
         // Retrieve the documents with most matching hashes. https://stackoverflow.com/questions/10773581
         logger.info("Build boolean query from hashes");
