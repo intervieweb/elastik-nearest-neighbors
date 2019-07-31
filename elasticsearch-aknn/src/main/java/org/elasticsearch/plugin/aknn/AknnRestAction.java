@@ -45,6 +45,10 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
 import static java.lang.Math.min;
 import static org.elasticsearch.rest.RestRequest.Method.GET;
@@ -341,6 +345,7 @@ public class AknnRestAction extends BaseRestHandler {
                 put("_id", hit.getId());
                 put("_type", hit.getType());
                 put("_score", euclideanDistance(queryVector, hitVector));
+                put("_score_cosine", cosineSimilarityDistance(queryVector, hitVector));
                 put("_source", hitSource);
             }});
         }
@@ -544,6 +549,17 @@ public class AknnRestAction extends BaseRestHandler {
         final String aknnURI = (String) contentMap.get("_aknn_uri");
         final Integer k1 = (Integer) contentMap.get("_k1");
         final Integer k2 = (Integer) contentMap.get("_k2");
+
+        final String education_experience_title = (String) contentMap.get("title");
+        final String education_experience_organization = (String) contentMap.get("organization");
+        final String work_experience_employer = (String) contentMap.get("employer");
+        final String work_experience_position = (String) contentMap.get("position");
+
+        final String education_experience_title_mode = (String) contentMap.get("title_mode");
+        final String education_experience_organization_mode = (String) contentMap.get("organization_mode");
+        final String work_experience_employer_mode = (String) contentMap.get("employer_mode");
+        final String work_experience_position_mode = (String) contentMap.get("position_mode");
+
         @SuppressWarnings("unchecked")
         final List<Double> queryVector = (List<Double>) contentMap.get("_aknn_vector");
         stopWatch.stop();
@@ -594,8 +610,135 @@ public class AknnRestAction extends BaseRestHandler {
         }
         stopWatch.stop();
 
+        try {
+
+            if(education_experience_title != null && !education_experience_title.isEmpty()
+                && education_experience_title_mode != null && !education_experience_title_mode.isEmpty()) {
+                logger.info("Adding title of education_experience filter in query");
+                switch(education_experience_title_mode) {
+                    case "STRICT":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.education_experience.title", education_experience_title)
+                                .operator(Operator.AND)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    case "AT_LEAST_ONE":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.education_experience.title", education_experience_title)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    default:
+                        // AT_LEAST_ONE
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.education_experience.title", education_experience_title)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                }
+            }
+
+            if(education_experience_organization != null && !education_experience_organization.isEmpty()
+                && education_experience_organization_mode != null && !education_experience_organization_mode.isEmpty()) {
+                logger.info("Adding organization of education_experience filter in query");
+                switch(education_experience_organization_mode) {
+                    case "STRICT":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.education_experience.organization", education_experience_organization)
+                                .operator(Operator.AND)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    case "AT_LEAST_ONE":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.education_experience.organization", education_experience_organization)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    default:
+                        // AT_LEAST_ONE
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.education_experience.organization", education_experience_organization)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                }
+            }
+
+            if(work_experience_employer != null && !work_experience_employer.isEmpty()
+                && work_experience_employer_mode != null && !work_experience_employer_mode.isEmpty()) {
+                logger.info("Adding employer of work_experience filter in query");
+                switch(work_experience_employer_mode) {
+                    case "STRICT":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.work_experience.employer", work_experience_employer)
+                                .operator(Operator.AND)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    case "AT_LEAST_ONE":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                                "all.info.work_experience.employer", work_experience_employer)
+                                    .prefixLength(0)
+                                    .maxExpansions(1)
+                                    .fuzzyTranspositions(false)
+                                    .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    default:
+                        // AT_LEAST_ONE
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.work_experience.employer", work_experience_employer)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                }
+            }
+
+            if(work_experience_position != null && !work_experience_position.isEmpty()
+                && work_experience_position_mode != null && !work_experience_position_mode.isEmpty()) {
+                logger.info("Adding position of work_experience filter in query");
+                switch(work_experience_position_mode) {
+                    case "STRICT":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.work_experience.position", work_experience_position)
+                                .operator(Operator.AND)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    case "AT_LEAST_ONE":
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.work_experience.position", work_experience_position)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                        break;
+                    default:
+                        // AT_LEAST_ONE
+                        ((BoolQueryBuilder) queryBuilder).must(QueryBuilders.matchQuery(
+                            "all.info.work_experience.position", work_experience_position)
+                                .prefixLength(0)
+                                .maxExpansions(1)
+                                .fuzzyTranspositions(false)
+                                .autoGenerateSynonymsPhraseQuery(false));
+                }
+                
+            }
+
+        } catch(Exception e) {
+            // Catch java.lang.NullPointerException
+        }
+
         logger.info("Execute boolean search");
-        //logger.info("queryBuilder is: {}", queryBuilder);
+        logger.info("queryBuilder is: {}", queryBuilder);
         stopWatch.start("Execute boolean search");
         SearchResponse approximateSearchResponse = client
                 .prepareSearch(index)
@@ -622,6 +765,7 @@ public class AknnRestAction extends BaseRestHandler {
                 put("_id", hit.getId());
                 put("_type", hit.getType());
                 put("_score", euclideanDistance(queryVector, hitVector));
+                put("_score_cosine", cosineSimilarityDistance(queryVector, hitVector));
                 put("_source", hitSource);
             }});
         }
@@ -641,7 +785,27 @@ public class AknnRestAction extends BaseRestHandler {
             builder.field("timed_out", false);
             builder.startObject("hits");
             builder.field("max_score", 0);
+            try {
 
+                if(education_experience_organization_mode != null && !education_experience_organization_mode.isEmpty()) {
+                    builder.field("edu_exp_org_mode", education_experience_organization_mode);
+                }
+
+                if(education_experience_title_mode != null && !education_experience_title_mode.isEmpty()) {
+                    builder.field("edu_exp_title_mode", education_experience_title_mode);
+                }
+
+                if(work_experience_employer_mode != null && !work_experience_employer_mode.isEmpty()) {
+                    builder.field("work_exp_employer_mode", work_experience_employer_mode);
+                }
+
+                if(work_experience_position_mode != null && !work_experience_position_mode.isEmpty()) {
+                    builder.field("work_exp_pos_mode", work_experience_position_mode);
+                }
+
+            } catch(Exception e) {
+                // Catch java.lang.NullPointerException
+            }
             // In some cases there will not be enough approximate matches to return *k2* hits. For example, this could
             // be the case if the number of bits per table in the LSH model is too high, over-partioning the space.
             builder.field("total", min(k2, modifiedSortedHits.size()));
